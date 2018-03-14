@@ -1,6 +1,6 @@
 //DNS Query Program
 //Author : Shivam Kumar
-//Dated : 05/03/2018
+//Dated : 15/03/2018
 
 //Header Files
 #include <stdio.h>
@@ -10,20 +10,10 @@
 #include<arpa/inet.h>
 #include<netinet/in.h>
 #include <vector>
+#include <cstddef>
+#include <algorithm>
 
 using namespace std;
-
-struct query_format{
-  unsigned short id;
-  unsigned char idk1:8;
-  unsigned char isQuery:1;
-  unsigned char idk2:7;
-  unsigned short no_of_q;
-  unsigned short no_of_a;
-  unsigned short idk3;
-  unsigned short idk4;
-  unsigned short * question;
-};
 
 int asciiof(char c){
   return c;
@@ -32,51 +22,6 @@ int asciiof(char c){
 char charofascii(int i){
   return i;
 }
-
-void save_q_to_query(query_format & query, string hostname) {
-  query.question = new unsigned short[hostname.size() + 6];
-  std::vector<int> counter(1,0);
-  for (size_t i = 0; i < hostname.size(); i++) {
-    if (hostname[i]=='.') {
-      counter.push_back(0);
-    }
-    else {
-      counter[counter.size() - 1]++;
-    }
-  }
-
-  int c=0, d=0;
-
-  for (size_t i = 0; i < counter.size(); i++) {
-    for (size_t j = 0; j < counter[i]; j++) {
-      if (j==0) {
-        query.question[c++] = counter[i];
-      }
-      if (hostname[d]=='.') {
-        d++;
-      }
-      query.question[c++] = asciiof(hostname[d++]);
-    }
-  }
-
-  query.question[c++] = 0;
-  query.question[c++] = 0;
-  query.question[c++] = 1;
-  query.question[c++] = 0;
-  query.question[c++] = 1;
-
-  for (size_t i = 0; i < hostname.size() + 6; i++) {
-    std::cout << query.question[i] ;
-  }
-  std::cout << '\n';
-
-}
-
-struct response_format{
-  unsigned short idk1[6];
-  unsigned char ip_address[4];
-};
-
 
 int main(int argc, char * argv[]){
 
@@ -95,40 +40,79 @@ int main(int argc, char * argv[]){
   dns_server_socket_address.sin_port = htons(53);
   dns_server_socket_address.sin_addr.s_addr = inet_addr(argv[1]);
 
-  //getting hostname from user
-  std::cout << "Enter a website name: " ;
-  std::string hostname ;
-  std::cin >> hostname;
-
-  //creating query
-  unsigned char query_message[65536];
-  query_format * query_message_dns = (struct query_format *) & query_message[0];
-  memset(query_message_dns, 0, 66536);
-  query_message_dns -> id = htons(355);
-  query_message_dns -> idk1 = 0;
-  query_message_dns -> isQuery = 1;
-  query_message_dns -> idk2 = 0;
-  query_message_dns -> no_of_q = htons(1);
-  query_message_dns -> no_of_a = 0;
-  query_message_dns -> idk3 = 0;
-  query_message_dns -> idk4 = 0;
-  save_q_to_query(*query_message_dns, hostname);
-
-  for (int i=0; i< 65536; i++){
-  std::cout << query_message[i];}
-
-  sendto(socket_descriptor, (char *)query_message, 65536, 0, (struct sockaddr*)&dns_server_socket_address, sizeof(dns_server_socket_address));
-
-  socklen_t dns_server_socket_address_size= sizeof(dns_server_socket_address);
-
-  recvfrom(socket_descriptor, (char *)query_message, 65536, 0, (struct sockaddr*)&dns_server_socket_address, & dns_server_socket_address_size);
-
-  response_format * response = (struct response_format *) & query_message;
-  for (size_t i = 0; i < 4; i++) {
-    if (i != 4) {
-      std::cout << asciiof(response->ip_address[i]) << "." ;
+  while (true) {
+    //getting hostname from user
+    std::cout << "Enter a website name: " ;
+    string hostname; cin >> hostname;
+    //converting hostname to all lowercase
+    std::transform(hostname.begin(), hostname.end(), hostname.begin(), ::tolower);
+    if (hostname == "bye") {
+      break;
     }
-    else std::cout << asciiof(response->ip_address[i]) << '\n';
-  }
 
+    //creating query
+
+    //storing query prefix
+    std::string query = "AA";
+    char char_0 = charofascii(0);
+    char char_1 = charofascii(1);
+    query = query + char_1 + char_0 + char_0 + char_1 + char_0 + char_0 + char_0 + char_0 + char_0 + char_0;
+
+    //storing hostname in query
+    std::vector<int> counter(1,0);
+    for (size_t i = 0; i < hostname.size(); i++) {
+      if (hostname[i]=='.') {
+        counter.push_back(0);
+      }
+      else {
+        counter[counter.size() - 1]++;
+      }
+    }
+
+    int c=0, d=0;
+
+    for (size_t i = 0; i < counter.size(); i++) {
+      for (size_t j = 0; j < counter[i]; j++) {
+        if (j==0) {
+          query = query + charofascii(counter[i]);
+        }
+        if (hostname[d]=='.') {
+          d++;
+        }
+        query = query + hostname[d++];
+      }
+    }
+
+    //storing suffix in query
+    query = query + char_0 + char_0 + char_1 + char_0 + char_1;
+
+    //converting query to valid type to send it to dns server
+    unsigned char dns_query_message[query.length()];
+    for (size_t i = 0; i < query.length(); i++) {
+      dns_query_message[i] = query[i];
+    }
+
+    //sending query to server
+    sendto(socket_descriptor, dns_query_message, query.length(), 0, (struct sockaddr*)&dns_server_socket_address, sizeof(dns_server_socket_address));
+
+    socklen_t dns_server_socket_address_size= sizeof(dns_server_socket_address);
+
+    //receiving and storing response
+    unsigned char query_message[65536];
+    recvfrom(socket_descriptor, (char *)query_message, 65536, 0, (struct sockaddr*)&dns_server_socket_address, & dns_server_socket_address_size);
+
+    //retrieving and printing ip address from the response
+    int a[4] ;
+    int str_point = query.length() + 12;
+    std::cout << "IP address of " << hostname << " is : ";
+    for (size_t i = 0; i < 4; i++) {
+      a[i] = query_message[str_point + i];
+      if (i != 3) {
+        std::cout << a[i] << '.';
+      }
+      else {
+        std::cout << a[i] << '\n';
+      }
+    }
+  }
 }
